@@ -110,7 +110,7 @@ def main():
                 targets = targets.to(configs.device, non_blocking=True)
             optimizer.zero_grad()
             outputs = model(inputs)
-            loss = criterion(outputs, targets)
+            loss = criterion(outputs, targets.float())
             writer.add_scalar('loss/train', loss.item(), current_step)
             current_step += batch_size
             loss.backward()
@@ -168,6 +168,7 @@ def main():
     print(f'\n==> loading dataset "{configs.dataset}"')
     dataset = configs.dataset()
     loaders = {}
+    print("dataset {}".format(dataset))
     for split in dataset:
         loaders[split] = DataLoader(
             dataset[split], shuffle=(split == 'train'), batch_size=configs.train.batch_size,
@@ -224,8 +225,9 @@ def main():
 
             # train
             print(f'\n==> training epoch {current_epoch}/{configs.train.num_epochs}')
-            train(model, loader=loaders['train'], criterion=criterion, optimizer=optimizer, scheduler=scheduler,
-                  current_step=current_step, writer=writer)
+            train(model, loader=loaders['train'], criterion=criterion,
+                optimizer=optimizer, scheduler=scheduler,
+                current_step=current_step, writer=writer)
             current_step += len(dataset['train'])
 
             # evaluate
@@ -237,9 +239,13 @@ def main():
             # check whether it is the best
             best = {m: False for m in configs.train.metrics}
             for m in configs.train.metrics:
-                if best_metrics[m] is None or best_metrics[m] < meters[m]:
+                print(best_metrics)
+                print(meters)
+                if best_metrics[m] is None or best_metrics[m] > meters[m]:
                     best_metrics[m], best[m] = meters[m], True
+                    print("best metrics changed! {} for {}".format(best_metrics[m], m))
                 meters[m + '_best'] = best_metrics[m]
+
             # log in tensorboard
             for k, meter in meters.items():
                 print(f'[{k}] = {meter:2f}')
@@ -257,6 +263,7 @@ def main():
             for m in configs.train.metrics:
                 if best[m]:
                     shutil.copyfile(configs.train.checkpoint_path, configs.train.best_checkpoint_paths[m])
+                print("meters: {}".format(meters))
             if best.get(configs.train.metric, False):
                 shutil.copyfile(configs.train.checkpoint_path, configs.train.best_checkpoint_path)
             print(f'[save_path] = {configs.train.save_path}')
