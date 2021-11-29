@@ -3,4 +3,4 @@ from utils.config import Config, configs
 
 configs.dataset = Config(SunRGBD)
 configs.dataset.root = 'data/combined'
-configs.dataset.num_points = 2048
+configs.dataset.num_points = 10000

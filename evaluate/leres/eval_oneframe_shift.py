@@ -191,6 +191,7 @@ def evaluate():
         focal_model.load_state_dict(checkpoint.pop('model'))
         del checkpoint
     else:
+        print("Can't find {}".format(focal_configs.evaluate.best_checkpoint_path))
         return
 
     focal_model.eval()
@@ -207,6 +208,7 @@ def evaluate():
         shift_model.load_state_dict(checkpoint.pop('model'))
         del checkpoint
     else:
+        print("Can't find {}".format(shift_configs.evaluate.best_checkpoint_path))
         return
 
     shift_model.eval()
@@ -219,8 +221,10 @@ def evaluate():
     proposed_depth = leres_find_shift(depth, valid_mask, focal_model,
                                       shift_configs.device, proposed_focal_len)
 
-    dmax = np.percentile(proposed_depth, 98)
-    depth_norm = proposed_depth / dmax
+    shift = -proposed_depth.min() + 0.5
+    depth_norm = proposed_depth + shift
+    dmax = np.percentile(depth_norm, 98)
+    depth_norm = depth_norm / dmax
     proposed_focal_len = leres_find_focal(depth_norm, valid_mask, focal_model,
                                           focal_configs.device, focal_len=proposed_focal_len)
 

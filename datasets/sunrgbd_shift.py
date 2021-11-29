@@ -33,6 +33,9 @@ class _SunRGBDDataset(Dataset):
         depth_fname = self.file_paths[index]
         intrins_fname = self.intrins_paths[index]
         depth, valid_mask, existing_shift = self.load_depth(depth_fname)
+        if np.random.rand() < 0.5:
+            depth = np.flip(depth, axis=1)
+            valid_mask = np.flip(valid_mask, axis=1)
 
         focal_len, cx, cy = self.load_intrinsics(intrins_fname)
         width = depth.shape[1]
@@ -77,9 +80,9 @@ class _SunRGBDDataset(Dataset):
         valid_mask = (inv_depth_raw < 65287)
 
         depth = (351.3 / (1092.5 - inv_depth_raw)).astype(np.float32)
-        depth_shift = -depth.min() + 0.5
+        depth_shift = -depth[valid_mask].min() + 0.5
         depth_norm = depth + depth_shift
-        dmax = np.percentile(depth_norm, 98)
+        dmax = np.percentile(depth_norm[valid_mask], 98)
         depth_norm = depth_norm / dmax
         depth_shift = depth_shift / dmax
 
