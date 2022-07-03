@@ -6,6 +6,7 @@ import copy
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
+import open3d as o3d
 
 sys.path.append(os.getcwd())
 
@@ -14,6 +15,7 @@ parser.add_argument('--focal_configs', nargs='+')
 parser.add_argument('--shift_configs', nargs='+')
 parser.add_argument('--devices', default=None)
 parser.add_argument('--depth_fpath', default=None)
+parser.add_argument('--rgb_fpath', default=None)
 args, opts = parser.parse_known_args()
 
 def prepare(configs_path):
@@ -70,11 +72,31 @@ def load_depth_img(depth_fname):
     valid_mask = (inv_depth_raw < 65287)
 
     depth = (351.3 / (1092.5 - inv_depth_raw)).astype(np.float32)
-    shift = -depth.min() + 0.5
+    shift = -depth[valid_mask].min() + 0.5
     depth_norm = depth + shift
-    dmax = np.percentile(depth_norm, 98)
+    dmax = np.percentile(depth_norm[valid_mask], 98)
     depth_norm = depth_norm / dmax
     shift = shift / dmax
+    print("shift {}".format(shift))
+
+    return depth_norm, valid_mask
+
+
+def load_dpt_depth_img(depth_fname):
+    inv_depth_raw = cv2.imread(depth_fname, -1)
+    inv_depth = np.float32(inv_depth_raw) / 65535
+    print("inv_depth {}".format(inv_depth.shape))
+
+    depth = 1 / inv_depth
+    dim = (640, int(640.0 / depth.shape[1] * depth.shape[0]))
+    depth = cv2.resize(depth, dim)
+    valid_mask = np.logical_and(~np.isnan(depth), depth < 10)
+
+    shift = -depth[valid_mask].min() + 0.5
+    depth_norm = depth + shift
+    dmax = np.percentile(depth_norm[valid_mask], 98)
+    print("dmax {}".format(dmax))
+    depth_norm = depth_norm / dmax
     print("shift {}".format(shift))
 
     return depth_norm, valid_mask
@@ -117,7 +139,7 @@ def leres_find_focal(depth, valid_mask, focal_model, device, focal_len=None):
     Kinv = np.linalg.inv(K)
 
     point_set = depth_to_ptcloud(depth, valid_mask, width, height, Kinv)
-    choice = np.random.choice(point_set.shape[1], 2048, replace=True)
+    choice = np.random.choice(point_set.shape[1], 10000, replace=True)
     point_set = point_set[:, choice]
 
     # model inference
@@ -143,7 +165,7 @@ def leres_find_shift(depth, valid_mask, shift_model, device, focal_len):
     Kinv = np.linalg.inv(K)
 
     point_set = depth_to_ptcloud(depth, valid_mask, width, height, Kinv)
-    choice = np.random.choice(point_set.shape[1], 2048, replace=True)
+    choice = np.random.choice(point_set.shape[1], 10000, replace=True)
     point_set = point_set[:, choice]
 
     # model inference
@@ -216,18 +238,34 @@ def evaluate():
     ##############
     # Evaluation #
     ##############
-    depth, valid_mask = load_depth_img(args.depth_fpath)
+    #depth, valid_mask = load_depth_img(args.depth_fpath)
+    depth, valid_mask = load_dpt_depth_img(args.depth_fpath)
     proposed_focal_len = leres_find_focal(depth, valid_mask, focal_model, focal_configs.device)
     proposed_depth = leres_find_shift(depth, valid_mask, focal_model,
                                       shift_configs.device, proposed_focal_len)
 
-    shift = -proposed_depth.min() + 0.5
-    depth_norm = proposed_depth + shift
-    dmax = np.percentile(depth_norm, 98)
-    depth_norm = depth_norm / dmax
-    proposed_focal_len = leres_find_focal(depth_norm, valid_mask, focal_model,
-                                          focal_configs.device, focal_len=proposed_focal_len)
+    #shift = -proposed_depth[valid_mask].min() + 0.5
+    #depth_norm = proposed_depth + shift
+    #dmax = np.percentile(depth_norm[valid_mask], 98)
+    #depth_norm = depth_norm / dmax
+    #proposed_focal_len = leres_find_focal(depth_norm, valid_mask, focal_model,
+    #                                      focal_configs.device, focal_len=proposed_focal_len)
 
+    # viz pointcloud
+    rgb = cv2.imread(args.rgb_fpath, -1)
+    dim = (640, int(640.0 / depth.shape[1] * depth.shape[0]))
+    rgb = cv2.resize(rgb, dim)
+    rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
+    intrinsics = build_intrinsics(proposed_focal_len, depth.shape[1] / 2, depth.shape[0] / 2)
+    o3dintrinsic = o3d.camera.PinholeCameraIntrinsic(depth.shape[1], depth.shape[0],
+        intrinsics[0][0], intrinsics[1][1], intrinsics[0][2], intrinsics[1][2])
+    depth_open3d = o3d.geometry.Image(depth)
+    rgb_open3d = o3d.geometry.Image(rgb)
+    rgbd_open3d = o3d.geometry.RGBDImage.create_from_color_and_depth(
+        rgb_open3d, depth_open3d, depth_scale=1, depth_trunc=1.0,
+        convert_rgb_to_intensity = False)
+    pcd = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd_open3d, o3dintrinsic)
+    o3d.visualization.draw_geometries([pcd])
 
 if __name__ == '__main__':
     evaluate()
